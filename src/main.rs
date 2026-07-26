@@ -31,23 +31,24 @@ fn run(args: cli::Args) -> anyhow::Result<()> {
 }
 
 fn build_pack(pack: cli::Pack, opts: &cli::Options, out: &mut out::Output) -> anyhow::Result<()> {
-    let pack = out.pack(&pack.name)
-        .and_then(|dir| BuildDir::new(opts, &pack.path, dir))
+    let pack = BuildDir::new(opts, &pack.path, || out.pack(&pack.name))
         .context("setting up pack")?;
+    let Some(pack) = pack else { return Ok(()) };
 
     let mut dirs = vec![pack];
     while let Some(mut curr) = dirs.pop() {
         while let Some(DirEntry { path, ty, name }) = curr.entries.next() {
             match ty {
                 FileType::Dir => {
-                    let dir = curr.out.dir(out, &name)
-                        .and_then(|dir| BuildDir::new(opts, &path, dir))
+                    let dir = BuildDir::new(opts, &path, || curr.out.dir(out, &name))
                         .context("setting up dir")?;
 
-                    dirs.push(curr); curr = dir;
+                    if let Some(dir) = dir {
+                        dirs.push(curr); curr = dir;
 
-                    if let Some(_) = dirs.iter().find(|dir| dir.id == curr.id) {
-                        bail!("symlink loop in input dirs: {}", path.display())
+                        if let Some(_) = dirs.iter().find(|dir| dir.id == curr.id) {
+                            bail!("symlink loop in input dirs: {}", path.display())
+                        }
                     }
 
                     continue
@@ -80,10 +81,11 @@ struct DirEntry {
 }
 
 impl BuildDir {
-    fn new(opts: &cli::Options, path: &Path, out: out::SubFolder) -> anyhow::Result<Self> {
-        let id = file_id::get_file_id(path)
-            .err_path(path).context("getting file id for input dir")?;
-
+    fn new(
+        opts: &cli::Options,
+        path: &Path,
+        out: impl FnOnce() -> anyhow::Result<out::SubFolder>,
+    ) -> anyhow::Result<Option<Self>> {
         let mut entries = fs::read_dir(&path)
             .err_path(&path)
             .context("reading input dir")?
@@ -116,9 +118,20 @@ impl BuildDir {
                 bail!("duplicate names {} in dir: {}", a.name.display(), path.display())
             }
         }
-        let entries = entries.into_iter();
 
-        Ok(BuildDir { id, out, entries: entries })
+        let skip = entries
+            .iter()
+            .find(|entry| entry.name.eq_ignore_ascii_case(".content-pack-skip"))
+            .is_some();
+
+        if skip { Ok(None) } else {
+            Ok(Some(BuildDir {
+                id: file_id::get_file_id(path)
+                    .err_path(path).context("getting file id for input dir")?,
+                out: out()?,
+                entries: entries.into_iter(),
+            }))
+        }
     }
 }
 
