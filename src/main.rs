@@ -16,21 +16,18 @@ mod out;
 
 fn main() -> process::ExitCode {
     handle_err(run(cli::args()));
-    match get_err() {
-        false => process::ExitCode::SUCCESS,
-        true => process::ExitCode::FAILURE,
-    }
+    if get_err() { process::ExitCode::FAILURE } else { process::ExitCode::SUCCESS }
 }
 
 fn run(args: cli::Args) -> anyhow::Result<()> {
     let mut out = out::Output::setup(args.output, &args.options).context("setting up output")?;
     for pack in args.packs {
-        handle_err(build_pack(pack, &args.options, &mut out).context("building pack"));
+        handle_err(build_pack(&pack, &args.options, &mut out).context("building pack"));
     }
     out.finish().context("cleaning up output")
 }
 
-fn build_pack(pack: cli::Pack, opts: &cli::Options, out: &mut out::Output) -> anyhow::Result<()> {
+fn build_pack(pack: &cli::Pack, opts: &cli::Options, out: &mut out::Output) -> anyhow::Result<()> {
     let pack = BuildDir::new(opts, &pack.path, || out.pack(&pack.name))
         .context("setting up pack")?;
     let Some(pack) = pack else { return Ok(()) };
@@ -46,12 +43,10 @@ fn build_pack(pack: cli::Pack, opts: &cli::Options, out: &mut out::Output) -> an
                     if let Some(dir) = dir {
                         dirs.push(curr); curr = dir;
 
-                        if let Some(_) = dirs.iter().find(|dir| dir.id == curr.id) {
+                        if dirs.iter().find(|dir| dir.id == curr.id).is_some() {
                             bail!("symlink loop in input dirs: {}", path.display())
                         }
                     }
-
-                    continue
                 },
 
                 FileType::File => curr.out.file(out, &name, &path, |w| {
@@ -86,11 +81,11 @@ impl BuildDir {
         path: &Path,
         out: impl FnOnce() -> anyhow::Result<out::SubFolder>,
     ) -> anyhow::Result<Option<Self>> {
-        let mut entries = fs::read_dir(&path)
-            .err_path(&path)
+        let mut entries = fs::read_dir(path)
+            .err_path(path)
             .context("reading input dir")?
             .map(|entry| {
-                let entry = entry.err_path(&path)?;
+                let entry = entry.err_path(path)?;
                 let path = entry.path();
                 let ty = FileType::for_path(&path)?;
                 let name = match ty {
@@ -208,9 +203,11 @@ fn process_file(
 
 fn svg_to_png(opts: &cli::Options, path: &Path) -> anyhow::Result<Vec<u8>> {
     let tree = {
-        let mut opt = resvg::usvg::Options::default();
-        opt.resources_dir = fs::canonicalize(path)
-            .ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+        let mut opt = resvg::usvg::Options {
+            resources_dir: fs::canonicalize(path)
+                .ok().and_then(|p| p.parent().map(Path::to_path_buf)),
+            ..Default::default()
+        };
         opt.fontdb_mut().load_system_fonts();
 
         let svg = fs::read(path).context("reading svg file")?;

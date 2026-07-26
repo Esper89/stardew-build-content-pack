@@ -14,7 +14,7 @@ pub struct Pack {
 }
 
 pub struct Output {
-    pub output_dir: Option<PathBuf>,
+    pub dir: Option<PathBuf>,
     pub cache: bool,
     pub zip_file: Option<PathBuf>,
     pub wrap_zip: String,
@@ -94,7 +94,7 @@ pub fn args() -> Args {
     Args {
         packs,
         output: Output {
-            output_dir: clap.out,
+            dir: clap.out,
             cache: !clap.force,
             zip_file: clap.zip,
             wrap_zip: clap.wrap.unwrap_or_default(),
@@ -246,8 +246,8 @@ enum Feature {
 
 impl FeatureSet {
     fn get(mut self) -> Features {
-        self.enable.as_mut().map(|v| { v.sort_unstable(); v.dedup() });
-        self.disable.as_mut().map(|v| { v.sort_unstable(); v.dedup() });
+        if let Some(v) = &mut self.enable { v.sort_unstable(); v.dedup() }
+        if let Some(v) = &mut self.disable { v.sort_unstable(); v.dedup() }
 
         match (self.enable, self.disable) {
             (None, None) => Features {

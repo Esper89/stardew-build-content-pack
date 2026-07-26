@@ -31,7 +31,7 @@ type ZipWriter = zip::ZipWriter<io::BufWriter<fs::File>>;
 
 impl Output {
     pub fn setup(output: cli::Output, opts: &cli::Options) -> anyhow::Result<Self> {
-        let dir = if let Some(path) = output.output_dir {
+        let dir = if let Some(path) = output.dir {
             fs::create_dir_all(&path).err_path(&path).context("creating output dir")?;
             Some(OutDir { path, cache: output.cache })
         } else { None };
@@ -82,7 +82,7 @@ impl Output {
         }
 
         let dir = if let Some(dir) = &self.dir {
-            let path = dir.path.join(&name);
+            let path = dir.path.join(name);
             match FileType::if_exists(&path).context("checking old pack dir")? {
                 None => fs::create_dir_all(&path).err_path(&path).context("creating pack dir")?,
                 Some(FileType::Dir) => (),
@@ -247,7 +247,7 @@ pub struct FileWriter<'w> {
     src: &'w Path,
 }
 
-impl<'w> FileWriter<'w> {
+impl FileWriter<'_> {
     pub fn write(self, bytes: &[u8]) -> anyhow::Result<()> {
         if let Some(path) = self.file_path {
             fs::write(path, bytes).err_path(path).context("writing bytes to output file")?;
