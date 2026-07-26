@@ -206,6 +206,12 @@ fn svg_to_png(opts: &cli::Options, path: &Path) -> anyhow::Result<Vec<u8>> {
         let mut opt = resvg::usvg::Options {
             resources_dir: fs::canonicalize(path)
                 .ok().and_then(|p| p.parent().map(Path::to_path_buf)),
+            dpi: 32.0,
+            font_size: 8.0,
+            default_size: resvg::usvg::Size::from_wh(16.0, 16.0).expect("invalid size"),
+            shape_rendering: resvg::usvg::ShapeRendering::CrispEdges,
+            text_rendering: resvg::usvg::TextRendering::GeometricPrecision,
+            image_rendering: resvg::usvg::ImageRendering::Pixelated,
             ..Default::default()
         };
         opt.fontdb_mut().load_system_fonts();
