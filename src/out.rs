@@ -191,7 +191,7 @@ impl SubFolder {
 
         let file_path = if let (Some(dir), Some(sub_dir)) = (&mut out.dir, &mut self.dir) {
             let path = sub_dir.path.join(name);
-            if dir.cache && cmp_files_modified(&path, src) == Some(cmp::Ordering::Less) { None }
+            if dir.cache && cmp_files_modified(&path, src) == Some(cmp::Ordering::Greater) { None }
             else {
                 match FileType::if_exists(&path).context("checking old output file")? {
                     None | Some(FileType::File) => (),
