@@ -95,7 +95,8 @@ impl BuildDir {
                         let set_ext = name
                             .extension()
                             .and_then(OsStr::to_str)
-                            .and_then(|ext| map_file_ext(opts, ext));
+                            .map(str::to_ascii_lowercase)
+                            .and_then(|ext| map_file_ext(opts, &ext));
 
                         if let Some(ext) = set_ext { name.set_extension(ext); }
                         name.into_os_string()
