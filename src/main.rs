@@ -50,7 +50,7 @@ fn build_pack(pack: &cli::Pack, opts: &cli::Options, out: &mut out::Output) -> a
                 },
 
                 FileType::File => curr.out.file(out, &name, &path, |w| {
-                    let ext = path.extension().and_then(OsStr::to_str);
+                    let ext = path.extension().and_then(OsStr::to_str).unwrap_or_default();
                     process_file(opts, &path, ext, w)
                         .with_context(|| format!("processing file: {}", path.display()))
                 })?,
@@ -95,8 +95,7 @@ impl BuildDir {
                         let set_ext = name
                             .extension()
                             .and_then(OsStr::to_str)
-                            .map(str::to_ascii_lowercase)
-                            .and_then(|ext| map_file_ext(opts, &ext));
+                            .and_then(|ext| map_file_ext(opts, ext));
 
                         if let Some(ext) = set_ext { name.set_extension(ext); }
                         name.into_os_string()
@@ -182,23 +181,25 @@ impl FileType {
 }
 
 fn map_file_ext(opts: &cli::Options, ext: &str) -> Option<&'static str> {
-    match ext {
-        "svg" if opts.features.svg => Some("png"),
-        "toml" if opts.features.toml => Some("json"),
-        _ => None,
+    match () {
+        () if opts.features.svg && ext.eq_ignore_ascii_case("svg") => Some("png"),
+        () if opts.features.toml && ext.eq_ignore_ascii_case("toml") => Some("json"),
+        () => None,
     }
 }
 
 fn process_file(
     opts: &cli::Options,
     path: &Path,
-    ext: Option<&str>,
+    ext: &str,
     w: out::FileWriter,
 ) -> anyhow::Result<()> {
-    match ext {
-        Some("svg") if opts.features.svg => w.write(&svg_to_png(opts, path)?),
-        Some("toml") if opts.features.toml => w.write(&toml_to_json(opts, path)?),
-        _ => w.copy(),
+    match () {
+        () if opts.features.svg && ext.eq_ignore_ascii_case("svg")
+            => w.write(&svg_to_png(opts, path)?),
+        () if opts.features.toml && ext.eq_ignore_ascii_case("toml")
+            => w.write(&toml_to_json(opts, path)?),
+        () => w.copy(),
     }
 }
 
