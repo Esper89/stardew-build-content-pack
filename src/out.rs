@@ -37,7 +37,7 @@ impl Output {
         } else { None };
 
         let zip = if let Some(path) = output.zip_file {
-            let prefix = normalize_relative_path(&output.wrap_zip);
+            let prefix = normalize_wrap_dir(&output.wrap_zip);
 
             let file = fs::File::create(&path).err_path(&path).context("creating zip archive")?;
             let mut writer = zip::ZipWriter::new(io::BufWriter::new(file));
@@ -315,7 +315,7 @@ fn cmp_files_modified(a: &Path, b: &Path) -> Option<cmp::Ordering> {
     Some(a_modified.cmp(&b_modified))
 }
 
-fn normalize_relative_path(path: &str) -> String {
+fn normalize_wrap_dir(path: &str) -> String {
     let mut segments = path
         .split(['/', '\\'])
         .filter(|s| !s.is_empty() && *s != ".")
@@ -329,10 +329,33 @@ fn normalize_relative_path(path: &str) -> String {
                 i = new_i;
                 segments.remove(i);
             }
+        } else {
+            i += 1;
         }
-
-        i += 1;
     }
 
     segments.into_iter().flat_map(|s| [s, "/"]).collect()
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn normalize_wrap_dir() {
+        const CASES: &[(&str, &str)] = &[
+            ("foo", "foo/"),
+            (r"foo\bar", "foo/bar/"),
+            (r"foo/./bar/\baz", "foo/bar/baz/"),
+            ("foo/bar/../", "foo/"),
+            ("foo/bar/baz/../..", "foo/"),
+            ("foo/../bar/baz/..", "bar/"),
+            ("..", ""),
+            ("../../foo", "foo/"),
+            ("///////////", ""),
+            ("/././././././../././../././.../././../..//////..././.", ".../"),
+        ];
+
+        for (path, normalized) in CASES {
+            assert_eq!(&super::normalize_wrap_dir(path), normalized, "{path:?}");
+        }
+    }
 }
