@@ -307,8 +307,20 @@ fn clean_dir(dir: &Path, keep: impl Fn(&OsStr) -> bool) -> anyhow::Result<()> {
 }
 
 fn cmp_files_modified(a: &Path, b: &Path) -> Option<cmp::Ordering> {
-    let get_file_modified = |path| fs::metadata(path).ok()
-        .and_then(|meta| if meta.is_file() { meta.modified().ok() } else { None });
+    let get_file_modified = |path| {
+        let meta = fs::symlink_metadata(path).ok()?;
+        if meta.is_file() { return meta.modified().ok() }
+
+        let mut modified = meta.modified().ok()?;
+        let mut path = fs::read_link(path).ok()?;
+        loop {
+            let meta = fs::symlink_metadata(&path).ok()?;
+            modified = cmp::max(modified, meta.modified().ok()?);
+            if meta.is_file() { return Some(modified) }
+
+            path = fs::read_link(&path).ok()?;
+        }
+    };
 
     let a_modified = get_file_modified(a)?;
     let b_modified = get_file_modified(b)?;
