@@ -95,8 +95,7 @@ pub fn glob_files_relative(dir: &Path, glob: &str) -> anyhow::Result<Vec<PathBuf
                         if curr.path_idx == glob.floating_paths.len() - 1
                             && curr.seg_bits.last().as_deref().copied().unwrap_or(true)
                             && glob.floating_paths[curr.path_idx].segments.last()
-                                .map(|segment| segment.match_text(name.as_encoded_bytes()))
-                                .unwrap_or(false)
+                                .is_some_and(|segment| segment.match_text(name.as_encoded_bytes()))
                         { matches.push(path) }
                     },
 
@@ -189,7 +188,7 @@ impl FixedPath {
 impl Segment {
     fn match_text(&self, mut text: &[u8]) -> bool {
         {
-            let chunk = text.utf8_chunks().next().map(|c| c.valid()).unwrap_or("");
+            let chunk = text.utf8_chunks().next().map_or("", |c| c.valid());
             let mut graphemes = chunk.graphemes(true);
             if !self.base_str.match_prefix(&mut graphemes) { return false }
 
@@ -205,7 +204,7 @@ impl Segment {
         let mut floating_strs = self.floating_strs.iter();
 
         if let Some(last_str) = floating_strs.next_back() {
-            let chunk = rev_utf8_chunks(text).next().map(|(v, _)| v).unwrap_or("");
+            let chunk = rev_utf8_chunks(text).next().map_or("", |(v, _)| v);
             let mut graphemes = chunk.graphemes(true);
             if !last_str.match_suffix(&mut graphemes) { return false }
 
@@ -258,7 +257,7 @@ impl FixedStr {
 
                 Pattern::AnyGraphemes(n)
                     => if graphemes.nth(n.get() - 1).is_none() { return false },
-            };
+            }
         }
 
         true
@@ -286,7 +285,7 @@ impl FixedStr {
 
                 Pattern::AnyGraphemes(n)
                     => if graphemes.rev().nth(n.get() - 1).is_none() { return false },
-            };
+            }
         }
 
         true
@@ -338,7 +337,7 @@ fn normalize_char_iter(text: impl Iterator<Item = char>) -> impl Iterator<Item =
     text.nfd().default_case_fold().nfkd().default_case_fold().nfkd()
 }
 
-fn rev_utf8_chunks<'t>(mut text: &'t [u8]) -> impl Iterator<Item = (&'t str, &'t [u8])> {
+fn rev_utf8_chunks(mut text: &[u8]) -> impl Iterator<Item = (&str, &[u8])> {
     iter::from_fn(move || {
         if text.is_empty() { return None }
 
@@ -456,11 +455,11 @@ fn segment(glob: &str) -> impl Iterator<Item = anyhow::Result<Component>> {
     let mut next_res = None;
 
     if let Some(Ok(Token::Sep)) = tokens.peek() {
-        next_res = Some(Err(anyhow!("glob must be a relative path")))
+        next_res = Some(Err(anyhow!("glob must be a relative path")));
     }
 
     iter::from_fn(move || Some(Ok('iter: loop {
-        if let Some(r) = next_res.take() { return Some(r) };
+        if let Some(r) = next_res.take() { return Some(r) }
 
         const ONE: NonZero<usize> = NonZero::new(1).unwrap();
         enum PreNormPat<'g> { Lit(&'g str), AnyGraphemes(NonZero<usize>) }
@@ -509,7 +508,7 @@ fn segment(glob: &str) -> impl Iterator<Item = anyhow::Result<Component>> {
         if !patterns.is_empty() || !fixed_strs.is_empty() { fixed_strs.push(patterns) }
 
         if fixed_strs.len() <= 1 {
-            match fixed_strs.get(0).map(|v| &v[..]).unwrap_or(&[]) {
+            match fixed_strs.first().map_or(&[][..], |v| &v[..]) {
                 [] => if eos { return None } else { continue },
                 [PreNormPat::Lit(".")] => continue,
                 [PreNormPat::Lit("..")] => break Component::Parent,
@@ -568,7 +567,7 @@ fn lex(mut glob: &str) -> impl Iterator<Item = anyhow::Result<Token<'_>>> {
             '*' => match chars.next() {
                 Some((_, '*')) => {
                     glob = &glob[2..];
-                    while let Some(_) = chars.next_if(|&(_, c)| c == '*') {
+                    while chars.next_if(|&(_, c)| c == '*').is_some() {
                         glob = &glob[1..];
                     }
                     return Some(Ok(Token::AnyTree))

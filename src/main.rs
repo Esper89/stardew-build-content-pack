@@ -346,10 +346,12 @@ fn load_and_preprocess_toml(path: &Path) -> anyhow::Result<String> {
                     "include" => {
                         let dir = curr.path
                             .parent()
-                            .map(|p| if p.as_os_str().is_empty() { Path::new(".") } else { p })
-                            .unwrap_or(&curr.path);
+                            .map_or(
+                                &*curr.path,
+                                |p| if p.as_os_str().is_empty() { Path::new(".") } else { p },
+                            );
 
-                        let paths = glob::glob_files_relative(&dir, arg).with_context(|| format!(
+                        let paths = glob::glob_files_relative(dir, arg).with_context(|| format!(
                             "matching glob '{arg}' in toml file: {}",
                             curr.path.display(),
                         ))?;
