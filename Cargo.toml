@@ -13,6 +13,8 @@ codegen-units = 1
 
 [dependencies]
 anyhow = "1.0"
+bitvec = "1.1"
+caseless = "0.2"
 clap = { version = "4.6", features = ["derive"] }
 file-id = "0.2"
 oxipng = "10.1"
@@ -21,4 +23,6 @@ resvg = "0.47"
 serde_json = "1.0"
 serde-transcode = "1.1"
 toml = { version = "1.1", features = ["preserve_order"] }
+unicode-normalization = "0.1"
+unicode-segmentation = "1.13"
 zip = { version = "8.6", default-features = false, features = ["deflate", "time"] }

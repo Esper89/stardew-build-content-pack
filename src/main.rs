@@ -12,6 +12,7 @@ use std::{
 use anyhow::{anyhow, bail, Context};
 
 mod cli;
+mod glob;
 mod out;
 
 fn main() -> process::ExitCode {
@@ -263,7 +264,7 @@ fn svg_to_png(opts: &cli::Options, path: &Path) -> anyhow::Result<Vec<u8>> {
 }
 
 fn toml_to_json(opts: &cli::Options, path: &Path) -> anyhow::Result<Vec<u8>> {
-    let toml = fs::read_to_string(path).err_path(path).context("reading toml file")?;
+    let toml = load_and_preprocess_toml(path).context("loading and preprocessing toml file")?;
     let de = toml::Deserializer::parse(&toml).context("deserializing toml")?;
 
     let mut buf = Vec::new();
@@ -279,4 +280,96 @@ fn toml_to_json(opts: &cli::Options, path: &Path) -> anyhow::Result<Vec<u8>> {
 
     buf.push(b'\n');
     Ok(buf)
+}
+
+fn load_and_preprocess_toml(path: &Path) -> anyhow::Result<String> {
+    struct TomlFile {
+        path: PathBuf,
+        id: file_id::FileId,
+        bytes: usize,
+        lines: vec::IntoIter<String>,
+        includes: vec::IntoIter<PathBuf>,
+    }
+
+    impl TomlFile {
+        fn read(path: &Path) -> anyhow::Result<Self> {
+            let path = fs::canonicalize(path)
+                .err_path(path).context("canonicalizing path to toml file")?;
+
+            let id = file_id::get_file_id(&path)
+                .err_path(&path).context("getting id for toml file")?;
+
+            let text = fs::read_to_string(&path)
+                .err_path(&path).context("reading toml file")?;
+
+            let bytes = text.len();
+            let lines = text.lines().map(str::to_owned).collect::<Vec<_>>().into_iter();
+            let includes = vec![].into_iter();
+
+            Ok(TomlFile { path, id, bytes, lines, includes })
+        }
+    }
+
+    let root = TomlFile::read(path)?;
+    let mut toml = String::with_capacity(root.bytes);
+
+    let mut files = vec![root];
+    'file: while let Some(mut curr) = files.pop() {
+        if let Some(path) = curr.includes.next() {
+            let file = TomlFile::read(&path)?;
+            files.push(curr); curr = file;
+
+            if files.iter().find(|file| file.id == curr.id).is_some() {
+                bail!("include loop in toml files: {}", path.display())
+            }
+
+            files.push(curr);
+            continue
+        }
+
+        for line in &mut curr.lines {
+            let mut line = &*line;
+
+            if line.starts_with("###") {
+                line = &line[1..];
+            } else if let Some(cmd) = line.strip_prefix("##") {
+                let (cmd, arg) = cmd.split_once(char::is_whitespace).unwrap_or((cmd, ""));
+                let arg = arg.trim_start();
+                if cmd.is_empty() {
+                    return Err(anyhow!(
+                        "escape ## at start of line with ### in toml file: {}",
+                        curr.path.display(),
+                    ).context("preprocessing toml"))
+                }
+
+                match cmd {
+                    "include" => {
+                        let dir = curr.path
+                            .parent()
+                            .map(|p| if p.as_os_str().is_empty() { Path::new(".") } else { p })
+                            .unwrap_or(&curr.path);
+
+                        let paths = glob::glob_files_relative(&dir, arg).with_context(|| format!(
+                            "matching glob '{arg}' in toml file: {}",
+                            curr.path.display(),
+                        ))?;
+
+                        curr.includes = paths.into_iter();
+                        files.push(curr);
+                        continue 'file
+                    },
+
+                    _ => return Err(anyhow!(
+                        "unknown preprocessor command '{cmd}' in toml file: {}",
+                        curr.path.display(),
+                    )),
+                }
+            }
+
+            toml.push_str(line);
+            toml.push('\n');
+        }
+    }
+
+    Ok(toml)
 }
