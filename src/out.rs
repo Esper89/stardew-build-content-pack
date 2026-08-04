@@ -179,9 +179,9 @@ impl SubFolder {
         Ok(SubFolder { dir, zip, entries: HashSet::new() })
     }
 
-    pub fn file(
-        &mut self, out: &mut Output, name: &OsStr, src: &Path,
-        f: impl FnOnce(FileWriter) -> anyhow::Result<()>,
+    pub fn file<'l>(
+        &mut self, out: &mut Output,
+        name: &OsStr, src: &impl crate::File<'l>,
     ) -> anyhow::Result<()> {
         if !self.entries.insert(name.to_owned()) {
             bail!("duplicate dir entries: {}", name.display())
@@ -191,7 +191,7 @@ impl SubFolder {
 
         let file_path = if let (Some(dir), Some(sub_dir)) = (&mut out.dir, &mut self.dir) {
             let path = sub_dir.path.join(name);
-            if dir.cache && cmp_files_modified(&path, src) == Some(cmp::Ordering::Greater) { None }
+            if dir.cache && cmp_files_modified(src, &path) == Some(cmp::Ordering::Less) { None }
             else {
                 match FileType::if_exists(&path).context("checking old output file")? {
                     None | Some(FileType::File) => (),
@@ -220,8 +220,7 @@ impl SubFolder {
         } else { None };
 
         if !skip {
-            let w = FileWriter { file_path, zip_writer, src };
-            f(w)?;
+            src.write(FileWriter { file_path, zip_writer })?
         }
 
         if let Some(zip) = &mut out.zip {
@@ -244,7 +243,6 @@ impl SubFolder {
 pub struct FileWriter<'w> {
     file_path: Option<&'w Path>,
     zip_writer: Option<&'w mut ZipWriter>,
-    src: &'w Path,
 }
 
 impl FileWriter<'_> {
@@ -260,20 +258,20 @@ impl FileWriter<'_> {
         Ok(())
     }
 
-    pub fn copy(self) -> anyhow::Result<()> {
-        if let Some(path) = self.file_path {
-            fs::copy(self.src, path).with_context(|| format!(
-                "copying file {} to {}", self.src.display(), path.display(),
+    pub fn copy(self, path: &Path) -> anyhow::Result<()> {
+        if let Some(out_path) = self.file_path {
+            fs::copy(path, out_path).with_context(|| format!(
+                "copying file {} to {}", path.display(), out_path.display(),
             ))?;
         }
 
         if let Some(zip) = self.zip_writer {
-            let mut file = fs::File::open(self.src).err_path(self.src).with_context(|| format!(
-                "opening {} to copy into zip archive", self.src.display(),
+            let mut file = fs::File::open(path).err_path(path).with_context(|| format!(
+                "opening {} to copy into zip archive", path.display(),
             ))?;
 
             io::copy(&mut file, zip).with_context( || format!(
-                "copying {} into zip archive", self.src.display(),
+                "copying {} into zip archive", path.display(),
             ))?;
         }
 
@@ -306,25 +304,14 @@ fn clean_dir(dir: &Path, keep: impl Fn(&OsStr) -> bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cmp_files_modified(a: &Path, b: &Path) -> Option<cmp::Ordering> {
-    let get_file_modified = |path| {
-        let meta = fs::symlink_metadata(path).ok()?;
-        if meta.is_file() { return meta.modified().ok() }
+fn cmp_files_modified<'l>(src: &impl crate::File<'l>, dst: &Path) -> Option<cmp::Ordering> {
+    let src_modified = src.modified()?;
 
-        let mut modified = meta.modified().ok()?;
-        let mut path = fs::read_link(path).ok()?;
-        loop {
-            let meta = fs::symlink_metadata(&path).ok()?;
-            modified = cmp::max(modified, meta.modified().ok()?);
-            if meta.is_file() { return Some(modified) }
+    let dst_meta = fs::symlink_metadata(dst).ok()?;
+    if !dst_meta.is_file() { return None }
+    let dst_modified = dst_meta.modified().ok()?;
 
-            path = fs::read_link(&path).ok()?;
-        }
-    };
-
-    let a_modified = get_file_modified(a)?;
-    let b_modified = get_file_modified(b)?;
-    Some(a_modified.cmp(&b_modified))
+    Some(src_modified.cmp(&dst_modified))
 }
 
 fn normalize_wrap_dir(path: &str) -> String {

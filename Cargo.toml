@@ -21,8 +21,8 @@ oxipng = "10.1"
 png = "0.18"
 resvg = "0.48"
 serde_json = "1.0"
+serde_toml = { package = "toml", version = "1.1", features = ["preserve_order"] }
 serde-transcode = "1.1"
-toml = { version = "1.1", features = ["preserve_order"] }
 unicode-normalization = "0.1"
 unicode-segmentation = "1.13"
 zip = { version = "8.6", default-features = false, features = ["deflate", "time"] }
