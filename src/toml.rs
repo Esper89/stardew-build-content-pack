@@ -1,4 +1,4 @@
-use std::{fs, path::{Path, PathBuf}, time::SystemTime, vec};
+use std::{cmp, fs, path::{Path, PathBuf}, time::SystemTime, vec};
 use anyhow::{anyhow, bail, Context};
 use crate::{cli, ErrorPath, glob, out};
 
@@ -10,9 +10,9 @@ pub struct File<'l> {
 
 impl<'l> crate::File<'l> for File<'l> {
     fn load(opts: &'l cli::Options, path: &'l Path) -> anyhow::Result<Self> {
-        let modified = crate::get_file_modified(path);
+        let (toml, modified) = load_and_preprocess_toml(path)
+            .context("loading and preprocessing toml file")?;
 
-        let toml = load_and_preprocess_toml(path).context("loading and preprocessing toml file")?;
         Ok(File { opts, modified, toml })
     }
 
@@ -40,15 +40,20 @@ impl<'l> crate::File<'l> for File<'l> {
     }
 }
 
-fn load_and_preprocess_toml(path: &Path) -> anyhow::Result<String> {
+fn load_and_preprocess_toml(path: &Path) -> anyhow::Result<(String, Option<SystemTime>)> {
     let root = TomlFile::read(path)?;
     let mut toml = String::with_capacity(root.bytes);
+    let mut modified = crate::get_file_modified(&root.path);
 
     let mut files = vec![root];
     'file: while let Some(mut curr) = files.pop() {
         if let Some(path) = curr.includes.next() {
             let file = TomlFile::read(&path)?;
             files.push(curr); curr = file;
+
+            modified = modified.and_then(|old| {
+                crate::get_file_modified(&curr.path).map(|new| cmp::max(old, new))
+            });
 
             if files.iter().find(|file| file.id == curr.id).is_some() {
                 bail!("include loop in toml files: {}", path.display())
@@ -104,7 +109,7 @@ fn load_and_preprocess_toml(path: &Path) -> anyhow::Result<String> {
         }
     }
 
-    Ok(toml)
+    Ok((toml, modified))
 }
 
 struct TomlFile {

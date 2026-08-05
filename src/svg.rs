@@ -1,6 +1,7 @@
-use std::{fs, path::Path, num::NonZero, time::SystemTime};
+use std::{cmp, fs, path::{self, Path, PathBuf}, num::NonZero, time::SystemTime};
 use anyhow::{anyhow, Context};
-use crate::{cli, out};
+use parking_lot::Mutex;
+use crate::{cli, ErrorPath, out};
 
 pub struct File<'l> {
     opts: &'l cli::Options,
@@ -10,23 +11,47 @@ pub struct File<'l> {
 
 impl<'l> crate::File<'l> for File<'l> {
     fn load(opts: &'l cli::Options, path: &'l Path) -> anyhow::Result<Self> {
-        let modified = crate::get_file_modified(path);
+        let path = fs::canonicalize(path)
+            .err_path(path).context("canonicalizing path to svg file")?;
+
+        let modified = Mutex::new(crate::get_file_modified(&path));
+        let default_string_resolver = resvg::usvg::ImageHrefResolver::default_string_resolver();
+        let resolve_string = Box::new(|href: &str, opts: &resvg::usvg::Options| {
+            let res = default_string_resolver(href, opts);
+            if res.is_some() {
+                let new = opts.resources_dir.as_ref()
+                    .and_then(|dir| join_canonical_path(dir, href).ok())
+                    .and_then(|path| crate::get_file_modified(&path));
+
+                let mut guard = modified.lock();
+                *guard = guard.and_then(|old| new.map(|new| cmp::max(old, new)));
+                drop(guard);
+            }
+            res
+        });
 
         let mut svgopts = resvg::usvg::Options {
-            resources_dir: fs::canonicalize(path)
-                .ok().and_then(|p| p.parent().map(Path::to_path_buf)),
+            resources_dir: path.parent().map(Path::to_path_buf),
             dpi: 32.0,
             font_size: 8.0,
             default_size: resvg::usvg::Size::from_wh(16.0, 16.0).expect("invalid size"),
             shape_rendering: resvg::usvg::ShapeRendering::CrispEdges,
             text_rendering: resvg::usvg::TextRendering::GeometricPrecision,
             image_rendering: resvg::usvg::ImageRendering::Pixelated,
+            image_href_resolver: resvg::usvg::ImageHrefResolver {
+                resolve_string,
+                ..Default::default()
+            },
             ..Default::default()
         };
         svgopts.fontdb_mut().load_system_fonts();
 
         let svg = fs::read(path).context("reading svg file")?;
         let tree = resvg::usvg::Tree::from_data(&svg, &svgopts).context("parsing svg data")?;
+
+        drop(svgopts);
+        let modified = modified.into_inner();
+
         Ok(File { opts, modified, tree })
     }
 
@@ -74,4 +99,20 @@ impl<'l> crate::File<'l> for File<'l> {
 
         w.write(&png)
     }
+}
+
+fn join_canonical_path(path: &Path, href: &str) -> anyhow::Result<PathBuf> {
+    // on windows, canonical paths may not use '/' separators
+
+    let path = if path::MAIN_SEPARATOR == '/' { path.join(href) } else {
+        let href = href
+            .split('/')
+            .flat_map(|seg| [path::MAIN_SEPARATOR_STR, seg])
+            .skip(1)
+            .collect::<String>();
+
+        path.join(href)
+    };
+
+    fs::canonicalize(&path).err_path(&path)
 }
