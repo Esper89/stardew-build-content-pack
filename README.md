@@ -12,6 +12,20 @@ Install the Rust programming language, then run:
 cargo install --git https://github.com/Esper89/stardew-build-content-pack
 ```
 
+## Usage
+
+For a list of command-line arguments, run with `--help`.
+
+Built content packs can be exported to a directory or to a `.zip` archive. Directory export supports
+caching output files to avoid re-processing the same file (e.g. re-rendering the same SVG) if the
+inputs have not changed.
+
+TOML files can include other text files in them with `##include other-file.toml` at the start of a
+line. Other uses of `##` at the start of a line (for example, in a string) can be escaped with
+`###`. This feature supports basic glob matching.
+
+Directories can be ignored by placing a file named `.content-pack-skip` in the directory.
+
 ## License
 
 Copyright © 2026 Esper Thomson

@@ -114,7 +114,7 @@ struct Clap {
     /// Content packs to process
     packs: Vec<OsString>,
 
-    /// Each content pack path must be followed by a pack name
+    /// Each content pack path is followed by a pack name
     #[arg(short, long)]
     named: bool,
 
@@ -122,7 +122,7 @@ struct Clap {
     #[arg(short, long, group = "output")]
     out: Option<PathBuf>,
 
-    /// Overwrite output files regardless of timestamp
+    /// Overwrite output files without caching
     #[arg(short, long, requires = "out")]
     force: bool,
 
