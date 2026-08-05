@@ -1,6 +1,6 @@
 [package]
 name = "build-content-pack"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Build SMAPI content packs from source files"
 repository = "https://github.com/Esper89/stardew-build-content-pack"
