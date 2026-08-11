@@ -42,13 +42,18 @@ impl<'l> crate::File<'l> for File<'l> {
 
 fn load_and_preprocess_toml(path: &Path) -> anyhow::Result<(String, Option<SystemTime>)> {
     let root = TomlFile::read(path)?;
-    let mut toml = String::with_capacity(root.bytes);
+
+    let mut bytes = root.bytes;
+    let mut toml = String::with_capacity(bytes);
     let mut modified = crate::get_file_modified(&root.path);
 
     let mut files = vec![root];
     'file: while let Some(mut curr) = files.pop() {
         if let Some(path) = curr.includes.next() {
             let file = TomlFile::read(&path)?;
+            bytes += file.bytes;
+            toml.reserve(bytes.saturating_sub(toml.len()));
+
             files.push(curr); curr = file;
 
             modified = modified.and_then(|old| {
